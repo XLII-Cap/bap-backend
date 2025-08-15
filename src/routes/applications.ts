@@ -55,7 +55,7 @@ applicationRouter.post("/generate", async (req, res) => {
   const input = parsed.data;
 
   try {
-    // 1. Vorhandene Daten prüfen
+    // 1. Pflichtfelder prüfen
     if (!input.notes || !input.applicant?.insuranceName) {
       return res.status(400).json({
         ok: false,
@@ -63,10 +63,14 @@ applicationRouter.post("/generate", async (req, res) => {
       });
     }
 
-    // 2. KI analysiert Freitext => nur Beschreibung & Begründung
-    const aiSuggestion = await analyzeApplicationText(input.notes);
+    // 2. Freitext & restliche Daten an OpenAI übergeben
+    const aiSuggestion = await analyzeApplicationText({
+      notes: input.notes,
+      applicant: input.applicant,
+      measures: input.measures || [],
+    });
 
-    // 3. Template laden basierend auf Versicherung
+    // 3. PDF-Vorlage laden
     const template = await findTemplateForInsurer(input.applicant.insuranceName);
     if (!template) {
       return res.status(404).json({
@@ -75,7 +79,7 @@ applicationRouter.post("/generate", async (req, res) => {
       });
     }
 
-    // 4. PDF erzeugen mit echten + KI-Daten
+    // 4. PDF erzeugen
     const pdfBytes = await generateApplicationPdf({
       templatePathInBucket: template.templatePathInBucket,
       fieldMapping: template.fieldMapping,

@@ -122,4 +122,3 @@ applicationRouter.post("/generate", async (req, res) => {
   }
 });
 
-});

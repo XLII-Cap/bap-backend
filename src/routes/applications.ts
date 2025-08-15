@@ -32,7 +32,7 @@ const ApplicantSchema = z.object({
 });
 
 const CreateApplicationSchema = z.object({
-  applicant: ApplicantSchema.optional(),
+  applicant: ApplicantSchema,
   measures: z.array(z.string()).optional(),
   notes: z.string().optional(),
   description: z.string().optional(),
@@ -42,8 +42,8 @@ const CreateApplicationSchema = z.object({
 // --- Hauptfunktion ---
 applicationRouter.post("/generate", async (req, res) => {
   console.log("🔍 Eingehender Request-Body:", req.body);
-  const parsed = CreateApplicationSchema.safeParse(req.body);
 
+  const parsed = CreateApplicationSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
       ok: false,
@@ -55,7 +55,7 @@ applicationRouter.post("/generate", async (req, res) => {
   const input = parsed.data;
 
   try {
-    // 1. Vorhandene Daten prüfen
+    // 1. Mindestvoraussetzungen prüfen
     if (!input.notes || !input.applicant?.insuranceName) {
       return res.status(400).json({
         ok: false,
@@ -63,14 +63,14 @@ applicationRouter.post("/generate", async (req, res) => {
       });
     }
 
-    // 2. KI analysiert Freitext + zusätzliche Daten
+    // 2. KI befragen (mit allen vorhandenen Feldern)
     const aiSuggestion = await analyzeApplicationText({
       notes: input.notes,
       applicant: input.applicant,
-      measures: input.measures || []
+      measures: input.measures ?? []
     });
 
-    // 3. Template laden basierend auf Versicherung
+    // 3. PDF-Vorlage anhand Krankenkasse
     const template = await findTemplateForInsurer(input.applicant.insuranceName);
     if (!template) {
       return res.status(404).json({
@@ -79,7 +79,7 @@ applicationRouter.post("/generate", async (req, res) => {
       });
     }
 
-    // 4. PDF erzeugen mit echten + KI-Daten
+    // 4. PDF erzeugen
     const pdfBytes = await generateApplicationPdf({
       templatePathInBucket: template.templatePathInBucket,
       fieldMapping: template.fieldMapping,
@@ -88,11 +88,11 @@ applicationRouter.post("/generate", async (req, res) => {
       justificationText: aiSuggestion.justification || "",
     });
 
-    // 5. Datei hochladen
+    // 5. PDF speichern
     const fileName = `applications/${Date.now()}_${input.applicant.lastName}_${input.applicant.firstName}.pdf`;
     const { path } = await uploadDocument(fileName, pdfBytes);
 
-    // 6. URL signieren
+    // 6. Signierte URL generieren
     const { signedUrl } = await signDocumentUrl(path);
 
     // 7. Antwort
@@ -121,4 +121,3 @@ applicationRouter.post("/generate", async (req, res) => {
     });
   }
 });
-

@@ -32,17 +32,18 @@ const ApplicantSchema = z.object({
 });
 
 const CreateApplicationSchema = z.object({
-  applicant: ApplicantSchema.optional(),         // optional, da wir aus Text generieren
+  applicant: ApplicantSchema.optional(),
   measures: z.array(z.string()).optional(),
-  notes: z.string().optional(),                  // optionaler Freitext (für KI)
-  description: z.string().optional(),            // wird von KI erzeugt
-  justification: z.string().optional()           // wird von KI erzeugt
+  notes: z.string().optional(),
+  description: z.string().optional(),
+  justification: z.string().optional()
 });
 
 // --- Hauptfunktion ---
 applicationRouter.post("/generate", async (req, res) => {
   console.log("🔍 Eingehender Request-Body:", req.body);
   const parsed = CreateApplicationSchema.safeParse(req.body);
+
   if (!parsed.success) {
     return res.status(400).json({
       ok: false,
@@ -54,49 +55,57 @@ applicationRouter.post("/generate", async (req, res) => {
   const input = parsed.data;
 
   try {
-    // 1. Freitext analysieren lassen
-    if (!input.notes) {
-      return res.status(400).json({ ok: false, error: "Bitte 'notes' mit Freitext übergeben." });
-    }
-
-    const aiSuggestion = await analyzeApplicationText(input.notes);
-
-    // 2. PDF-Vorlage laden
-    const template = await findTemplateForInsurer(aiSuggestion.applicant.insuranceName);
-    if (!template) {
-      return res.status(404).json({
+    // 1. Vorhandene Daten prüfen
+    if (!input.notes || !input.applicant?.insuranceName) {
+      return res.status(400).json({
         ok: false,
-        error: `Keine Vorlage für Kasse '${aiSuggestion.applicant.insuranceName}' gefunden.`,
+        error: "Erforderliche Felder fehlen: 'notes' oder 'applicant.insuranceName'",
       });
     }
 
-    // 3. PDF erzeugen
+    // 2. KI analysiert Freitext => nur Beschreibung & Begründung
+    const aiSuggestion = await analyzeApplicationText(input.notes);
+
+    // 3. Template laden basierend auf Versicherung
+    const template = await findTemplateForInsurer(input.applicant.insuranceName);
+    if (!template) {
+      return res.status(404).json({
+        ok: false,
+        error: `Keine Vorlage für Kasse '${input.applicant.insuranceName}' gefunden.`,
+      });
+    }
+
+    // 4. PDF erzeugen mit echten + KI-Daten
     const pdfBytes = await generateApplicationPdf({
       templatePathInBucket: template.templatePathInBucket,
       fieldMapping: template.fieldMapping,
-      applicant: aiSuggestion.applicant,
-      measures: aiSuggestion.measures || [],
-      justificationText: aiSuggestion.justification
+      applicant: input.applicant,
+      measures: input.measures || [],
+      justificationText: aiSuggestion.justification || "",
     });
 
-    // 4. Datei hochladen
-    const fileName = `applications/${Date.now()}_${aiSuggestion.applicant.lastName}_${aiSuggestion.applicant.firstName}.pdf`;
+    // 5. Datei hochladen
+    const fileName = `applications/${Date.now()}_${input.applicant.lastName}_${input.applicant.firstName}.pdf`;
     const { path } = await uploadDocument(fileName, pdfBytes);
 
-    // 5. Signierte URL erzeugen
+    // 6. URL signieren
     const { signedUrl } = await signDocumentUrl(path);
 
-    // 6. Antwort
+    // 7. Antwort
     return res.status(200).json({
       ok: true,
       file: {
         path,
-        url: signedUrl
+        url: signedUrl,
       },
       meta: {
         templateUsed: template.insurerName,
-        extractedData: aiSuggestion
-      }
+        extractedData: {
+          ...input,
+          description: aiSuggestion.description,
+          justification: aiSuggestion.justification,
+        },
+      },
     });
 
   } catch (err: any) {
@@ -104,7 +113,7 @@ applicationRouter.post("/generate", async (req, res) => {
     return res.status(500).json({
       ok: false,
       error: "Interner Fehler",
-      message: err?.message || JSON.stringify(err) || "Unbekannter Fehler"
+      message: err?.message || JSON.stringify(err) || "Unbekannter Fehler",
     });
   }
 });

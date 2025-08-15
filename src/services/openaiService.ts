@@ -1,28 +1,65 @@
+
 /**
- * Service zur späteren Textgenerierung via OpenAI.
- * Jetzt: Platzhalter-Text – die API-Integration kommt im nächsten Schritt.
+ * OpenAI-Service zur automatisierten Befüllung aller Antragsfelder.
+ * Ziel: Aus einem Freitext wird ein vollständiger JSON-Datensatz erzeugt,
+ * der in ein PDF-Formular übertragen werden kann.
  */
 
-import { CreateApplicationRequest } from "../types.js";
+import OpenAI from "openai";
+import { config } from "../config.js";
 
-// Diese Funktion erzeugt später den Begründungstext
-export async function createJustification(payload: CreateApplicationRequest): Promise<string> {
-  const a = payload.applicant;
+const client = new OpenAI({
+  apiKey: config.openaiApiKey,
+});
 
-  const text = `
-Sehr geehrte Damen und Herren,
+/**
+ * Aus Freitext alle relevanten Antrag-Felder generieren lassen.
+ */
+export async function analyzeApplicationText(userText: string): Promise<any> {
+  const prompt = `
+Du bist ein Assistent für Pflegeanträge. Bitte analysiere folgenden Text und gib eine strukturierte JSON-Antwort zurück.
 
-für die Antragstellerin ${a.firstName} ${a.lastName}, geboren am ${a.dateOfBirth}, 
-besteht aufgrund der gesundheitlichen Einschränkungen (${a.impairments ?? "nicht angegeben"}) und des Pflegegrads ${a.careLevel ?? "nicht bekannt"} 
-ein Bedarf an einer wohnumfeldverbessernden Maßnahme.
+### BEISPIELFORMAT ###
+{
+  "applicant": {
+    "firstName": "Anna",
+    "lastName": "Muster",
+    "dateOfBirth": "1945-03-12",
+    "street": "Beispielweg 1",
+    "postalCode": "40210",
+    "city": "Düsseldorf",
+    "insuranceName": "AOK PLUS",
+    "insuranceIdNumber": "AOK12345678",
+    "careLevel": 3
+  },
+  "description": "Die Badewanne soll durch eine bodengleiche Dusche ersetzt werden.",
+  "justification": "Aufgrund starker Mobilitätseinschränkungen ist die selbstständige Nutzung des Bades nicht mehr möglich...",
+  "measures": ["Wanne-zu-Dusche", "Haltegriffe"]
+}
 
-Geplant ist die Maßnahme: ${(payload.measures ?? []).join(", ") || "nicht angegeben"}.
+### NUTZERTEXT ###
+${userText}
 
-Die häusliche Pflege wird dadurch erleichtert, das Sturzrisiko gesenkt und die Selbstständigkeit gefördert.
+### JSON-ANTWORT ###
+`;
 
-Mit freundlichen Grüßen  
-Badumbau Profi System
-  `.trim();
+  const completion = await client.chat.completions.create({
+    model: "gpt-4",
+    messages: [
+      { role: "system", content: "Du bist ein KI-Assistent für Pflegeanträge (§ 40 SGB XI)." },
+      { role: "user", content: prompt }
+    ],
+    temperature: 0.4
+  });
 
-  return text;
+  const text = completion.choices[0]?.message?.content || "";
+  const jsonStart = text.indexOf("{");
+  const json = text.slice(jsonStart).trim();
+
+  try {
+    return JSON.parse(json);
+  } catch (err) {
+    console.error("Fehler beim Parsen der KI-Antwort:", err);
+    throw new Error("Die Antwort der KI konnte nicht gelesen werden.");
+  }
 }

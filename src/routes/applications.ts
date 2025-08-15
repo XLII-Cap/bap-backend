@@ -41,6 +41,7 @@ const CreateApplicationSchema = z.object({
 
 // --- Hauptfunktion ---
 applicationRouter.post("/generate", async (req, res) => {
+  console.log("🔍 Eingehender Request-Body:", req.body);
   const parsed = CreateApplicationSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({

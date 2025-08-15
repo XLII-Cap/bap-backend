@@ -1,43 +1,59 @@
 /**
  * OpenAI-Service zur automatisierten Befüllung aller Antragsfelder.
- * Ziel: Aus Nutzerdaten wird eine strukturierte JSON-Antwort erzeugt.
+ * Ziel: Aus Freitext + Strukturangaben wird eine vollständige JSON-Struktur erzeugt.
  */
 
 import OpenAI from "openai";
 import { config } from "../config.js";
 
+// OpenAI-Client
 const client = new OpenAI({
   apiKey: config.openaiApiKey,
 });
 
-// Neuer Typ: Eingabeformat für die Analyse
+// Eingabetyp
 type AnalyzeInput = {
   notes: string;
-  applicant?: any;
+  applicant?: Record<string, any>;
   measures?: string[];
 };
 
 /**
- * Analyse von Notizen, ergänzt um applicant & measures
+ * Nutze Freitext + Kontextdaten zur Analyse
  */
-export async function analyzeApplicationText(input: AnalyzeInput): Promise<any> {
+export async function analyzeApplicationText(input: AnalyzeInput): Promise<{
+  description: string;
+  justification: string;
+}> {
   const { notes, applicant, measures } = input;
 
-  const prompt = `
-Du bist ein Assistent für Pflegeanträge. Analysiere die folgenden Angaben und gib eine strukturierte JSON-Antwort zurück.
+  // Prompt dynamisch aus vorhandenem Input aufbauen
+  const context: string[] = [];
 
-### BEISPIELFORMAT ###
+  if (applicant) {
+    context.push("## Angaben zur Person ##");
+    context.push(JSON.stringify(applicant, null, 2));
+  }
+
+  if (measures?.length) {
+    context.push("## Gewünschte Maßnahmen ##");
+    context.push(JSON.stringify(measures));
+  }
+
+  context.push("## Freitext des Antragstellers ##");
+  context.push(notes);
+
+  const prompt = `
+Du bist ein Assistent für Pflegeanträge nach §40 SGB XI. Analysiere die folgenden Angaben und gib eine strukturierte JSON-Antwort zurück.
+
+### ZIELFORMAT ###
 {
-  "description": "Die Badewanne soll durch eine bodengleiche Dusche ersetzt werden.",
-  "justification": "Aufgrund starker Mobilitätseinschränkungen ist die selbstständige Nutzung des Bades nicht mehr möglich..."
+  "description": "Kurze Beschreibung der geplanten Maßnahme",
+  "justification": "Begründung aus Sicht der Pflegeperson oder des Antragstellers"
 }
 
-### NUTZEREINGABEN ###
-Pflegegrad: ${applicant?.careLevel || "nicht angegeben"}
-Geburtsdatum: ${applicant?.dateOfBirth || "nicht angegeben"}
-Versicherung: ${applicant?.insuranceName || "nicht angegeben"}
-Maßnahmen: ${(measures || []).join(", ") || "nicht angegeben"}
-Freitext: ${notes}
+### ANGABEN ###
+${context.join("\n\n")}
 
 ### JSON-ANTWORT ###
 `;
@@ -45,7 +61,7 @@ Freitext: ${notes}
   const completion = await client.chat.completions.create({
     model: "gpt-4",
     messages: [
-      { role: "system", content: "Du bist ein KI-Assistent für Pflegeanträge nach § 40 SGB XI." },
+      { role: "system", content: "Du bist ein KI-Assistent für Pflegeanträge nach §40 SGB XI." },
       { role: "user", content: prompt }
     ],
     temperature: 0.4

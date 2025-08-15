@@ -1,7 +1,7 @@
 [
   {
     "insurerName": "AOK PLUS",
-    "templatePathInBucket": "aok_plus/template.pdf",
+    "templatePathInBucket": "pflegemittelantraege/aok_plus/template.pdf",
     "fieldMapping": {
       "Name": "applicant.lastName",
       "Vorname": "applicant.firstName",

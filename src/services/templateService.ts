@@ -2,7 +2,8 @@
  * Lädt das passende Template für eine Pflegekasse aus insurers.json
  */
 
-import insurers from "../data/insurers.json";
+import insurers from "../data/insurers.json" assert { type: "json" };
+
 
 export type TemplateInfo = {
   insurerName: string;

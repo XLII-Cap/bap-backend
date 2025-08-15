@@ -1,45 +1,56 @@
 /**
- * OpenAI-Service zur automatisierten Erstellung von Beschreibung und Begründung.
- * Ziel: Aus dem Freitext (notes) werden "description" und "justification" erzeugt.
+ * OpenAI-Service zur automatisierten Erzeugung von Beschreibung & Begründung.
  */
 
 import OpenAI from "openai";
 import { config } from "../config.js";
 
+// OpenAI initialisieren
 const client = new OpenAI({
   apiKey: config.openaiApiKey,
 });
 
 /**
- * Nur Beschreibung und Begründung aus dem Freitext generieren.
- * Alle anderen Felder werden NICHT verändert.
+ * Nutzt den gesamten Antrag (nicht nur notes), um Beschreibung & Begründung zu generieren.
  */
-export async function analyzeApplicationText(notes: string): Promise<{
-  description: string;
-  justification: string;
-}> {
+export async function analyzeApplicationText(userText: string, contextData?: any): Promise<{ description: string; justification: string }> {
+  const contextString = contextData
+    ? `
+
+### BISHER BEKANNTE FELDER ###
+${JSON.stringify(contextData, null, 2)}`
+    : "";
+
   const prompt = `
-Du bist ein Assistent für Pflegeanträge (§ 40 SGB XI).
-Analysiere den folgenden Freitext und gib eine JSON-Antwort mit den Feldern "description" und "justification" zurück.
+Du bist ein Assistent für Pflegeanträge gemäß §40 SGB XI.
 
-Freitext:
-${notes}
+Deine Aufgabe:
+- Lies den folgenden Nutzereingabetext und die optionalen Kontextdaten.
+- Generiere ZWEI Dinge:
+  1. Eine **Beschreibung der beantragten Maßnahme**
+  2. Eine **Begründung**, warum diese Maßnahme medizinisch / pflegerisch notwendig ist.
 
-Erwarte nur dieses Format:
+Antworte NUR im folgenden JSON-Format:
 
 {
-  "description": "…",
-  "justification": "…"
+  "description": "...",
+  "justification": "..."
 }
-  `.trim();
+
+### NUTZERTEXT ###
+${userText}
+${contextString}
+
+### JSON-ANTWORT ###
+`;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4",
     messages: [
       { role: "system", content: "Du bist ein KI-Assistent für Pflegeanträge." },
-      { role: "user", content: prompt }
+      { role: "user", content: prompt },
     ],
-    temperature: 0.4
+    temperature: 0.4,
   });
 
   const text = completion.choices[0]?.message?.content || "";
@@ -47,13 +58,14 @@ Erwarte nur dieses Format:
   const json = text.slice(jsonStart).trim();
 
   try {
-    const parsed = JSON.parse(json);
+    const result = JSON.parse(json);
     return {
-      description: parsed.description ?? "",
-      justification: parsed.justification ?? ""
+      description: result.description || "",
+      justification: result.justification || "",
     };
   } catch (err) {
-    console.error("Fehler beim Parsen der KI-Antwort:", err);
+    console.error("❌ Fehler beim Parsen der KI-Antwort:", err);
+    console.error("❌ Ursprüngliche Antwort:", text);
     throw new Error("Die Antwort der KI konnte nicht gelesen werden.");
   }
 }

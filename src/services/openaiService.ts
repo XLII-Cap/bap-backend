@@ -1,8 +1,6 @@
-
 /**
- * OpenAI-Service zur automatisierten Befüllung aller Antragsfelder.
- * Ziel: Aus einem Freitext wird ein vollständiger JSON-Datensatz erzeugt,
- * der in ein PDF-Formular übertragen werden kann.
+ * OpenAI-Service zur automatisierten Erstellung von Beschreibung und Begründung.
+ * Ziel: Aus dem Freitext (notes) werden "description" und "justification" erzeugt.
  */
 
 import OpenAI from "openai";
@@ -13,40 +11,32 @@ const client = new OpenAI({
 });
 
 /**
- * Aus Freitext alle relevanten Antrag-Felder generieren lassen.
+ * Nur Beschreibung und Begründung aus dem Freitext generieren.
+ * Alle anderen Felder werden NICHT verändert.
  */
-export async function analyzeApplicationText(userText: string): Promise<any> {
+export async function analyzeApplicationText(notes: string): Promise<{
+  description: string;
+  justification: string;
+}> {
   const prompt = `
-Du bist ein Assistent für Pflegeanträge. Bitte analysiere folgenden Text und gib eine strukturierte JSON-Antwort zurück.
+Du bist ein Assistent für Pflegeanträge (§ 40 SGB XI).
+Analysiere den folgenden Freitext und gib eine JSON-Antwort mit den Feldern "description" und "justification" zurück.
 
-### BEISPIELFORMAT ###
+Freitext:
+${notes}
+
+Erwarte nur dieses Format:
+
 {
-  "applicant": {
-    "firstName": "Anna",
-    "lastName": "Muster",
-    "dateOfBirth": "1945-03-12",
-    "street": "Beispielweg 1",
-    "postalCode": "40210",
-    "city": "Düsseldorf",
-    "insuranceName": "AOK PLUS",
-    "insuranceIdNumber": "AOK12345678",
-    "careLevel": 3
-  },
-  "description": "Die Badewanne soll durch eine bodengleiche Dusche ersetzt werden.",
-  "justification": "Aufgrund starker Mobilitätseinschränkungen ist die selbstständige Nutzung des Bades nicht mehr möglich...",
-  "measures": ["Wanne-zu-Dusche", "Haltegriffe"]
+  "description": "…",
+  "justification": "…"
 }
-
-### NUTZERTEXT ###
-${userText}
-
-### JSON-ANTWORT ###
-`;
+  `.trim();
 
   const completion = await client.chat.completions.create({
     model: "gpt-4",
     messages: [
-      { role: "system", content: "Du bist ein KI-Assistent für Pflegeanträge (§ 40 SGB XI)." },
+      { role: "system", content: "Du bist ein KI-Assistent für Pflegeanträge." },
       { role: "user", content: prompt }
     ],
     temperature: 0.4
@@ -57,7 +47,11 @@ ${userText}
   const json = text.slice(jsonStart).trim();
 
   try {
-    return JSON.parse(json);
+    const parsed = JSON.parse(json);
+    return {
+      description: parsed.description ?? "",
+      justification: parsed.justification ?? ""
+    };
   } catch (err) {
     console.error("Fehler beim Parsen der KI-Antwort:", err);
     throw new Error("Die Antwort der KI konnte nicht gelesen werden.");

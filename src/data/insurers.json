@@ -1,0 +1,18 @@
+[
+  {
+    "insurerName": "AOK PLUS",
+    "templatePathInBucket": "aok_plus/template.pdf",
+    "fieldMapping": {
+      "Name": "applicant.lastName",
+      "Vorname": "applicant.firstName",
+      "Geburtsdatum": "applicant.dateOfBirth",
+      "Straße": "applicant.street",
+      "PLZ": "applicant.postalCode",
+      "Ort": "applicant.city",
+      "Versichertennummer": "applicant.insuranceIdNumber",
+      "Pflegegrad": "applicant.careLevel",
+      "Massnahme": "description",
+      "Begründung": "justification"
+    }
+  }
+]

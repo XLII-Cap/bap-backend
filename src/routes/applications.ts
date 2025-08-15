@@ -1,14 +1,16 @@
 import { Router } from "express";
 import { z } from "zod";
+import { findTemplateForInsurer } from "../services/templateService.js";
+import { createJustification } from "../services/openaiService.js";
+import type { CreateApplicationRequest } from "../types.js";
 
-// Router-Instanz für alle "applications"-Routen
 export const applicationRouter = Router();
 
-// Zod-Schema: Basisdaten des Antragstellers
+// --- SCHEMAS ---
 const ApplicantSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
-  dateOfBirth: z.string().min(4), // YYYY-MM-DD (vereinfachte Prüfung)
+  dateOfBirth: z.string().min(4),
   street: z.string().min(1),
   postalCode: z.string().min(3),
   city: z.string().min(1),
@@ -27,15 +29,14 @@ const ApplicantSchema = z.object({
   }).optional().nullable(),
 });
 
-// Zod-Schema: Antrags-Request
 const CreateApplicationSchema = z.object({
   applicant: ApplicantSchema,
   measures: z.array(z.string()).optional(),
   notes: z.string().optional(),
 });
 
-// POST /api/applications/generate (Stub)
-applicationRouter.post("/generate", (req, res) => {
+// --- ROUTE ---
+applicationRouter.post("/generate", async (req, res) => {
   const parsed = CreateApplicationSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
@@ -45,14 +46,33 @@ applicationRouter.post("/generate", (req, res) => {
     });
   }
 
-  // TODO: In den nächsten Schritten implementieren wir:
-  // 1) richtige PDF-Vorlage nach Kasse finden
-  // 2) Begründung via OpenAI erzeugen
-  // 3) PDF ausfüllen + Begründung anhängen
-  // 4) Upload nach Supabase Storage + signierte URL zurückgeben
+  const payload: CreateApplicationRequest = parsed.data;
 
-  return res.status(501).json({
-    ok: false,
-    message: "Noch nicht implementiert – Antragsgenerierung folgt in den nächsten Schritten."
-  });
+  try {
+    // 1) PDF-Vorlage je nach Kasse suchen
+    const template = await findTemplateForInsurer(payload.applicant.insuranceName);
+    if (!template) {
+      return res.status(404).json({
+        ok: false,
+        error: `Keine PDF-Vorlage gefunden für '${payload.applicant.insuranceName}'`,
+      });
+    }
+
+    // 2) Begründungstext generieren
+    const justification = await createJustification(payload);
+
+    // 3) JSON-Antwort senden (noch ohne PDF!)
+    return res.status(200).json({
+      ok: true,
+      template: template.templatePathInBucket,
+      justification: justification,
+    });
+
+  } catch (err) {
+    console.error("Fehler beim Generieren:", err);
+    return res.status(500).json({
+      ok: false,
+      error: "Interner Fehler beim Generieren",
+    });
+  }
 });

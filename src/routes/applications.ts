@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { findTemplateForInsurer } from "../services/templateService.js";
-import { createJustification } from "../services/openaiService.js";
+import { analyzeApplicationText } from "../services/openaiService.js";
 import { generateApplicationPdf } from "../services/pdfService.js";
 import { uploadDocument, signDocumentUrl } from "../services/storageService.js";
 import type { CreateApplicationRequest } from "../types.js";
@@ -32,9 +32,11 @@ const ApplicantSchema = z.object({
 });
 
 const CreateApplicationSchema = z.object({
-  applicant: ApplicantSchema,
+  applicant: ApplicantSchema.optional(),         // optional, da wir aus Text generieren
   measures: z.array(z.string()).optional(),
-  notes: z.string().optional(),
+  notes: z.string().optional(),                  // optionaler Freitext (für KI)
+  description: z.string().optional(),            // wird von KI erzeugt
+  justification: z.string().optional()           // wird von KI erzeugt
 });
 
 // --- Hauptfunktion ---
@@ -48,32 +50,36 @@ applicationRouter.post("/generate", async (req, res) => {
     });
   }
 
-  const payload: CreateApplicationRequest = parsed.data;
+  const input = parsed.data;
 
   try {
-    // 1. PDF-Vorlage laden
-    const template = await findTemplateForInsurer(payload.applicant.insuranceName);
+    // 1. Freitext analysieren lassen
+    if (!input.notes) {
+      return res.status(400).json({ ok: false, error: "Bitte 'notes' mit Freitext übergeben." });
+    }
+
+    const aiSuggestion = await analyzeApplicationText(input.notes);
+
+    // 2. PDF-Vorlage laden
+    const template = await findTemplateForInsurer(aiSuggestion.applicant.insuranceName);
     if (!template) {
       return res.status(404).json({
         ok: false,
-        error: `Keine Vorlage für Kasse '${payload.applicant.insuranceName}' gefunden.`,
+        error: `Keine Vorlage für Kasse '${aiSuggestion.applicant.insuranceName}' gefunden.`,
       });
     }
-
-    // 2. Begründung erzeugen
-    const justification = await createJustification(payload);
 
     // 3. PDF erzeugen
     const pdfBytes = await generateApplicationPdf({
       templatePathInBucket: template.templatePathInBucket,
       fieldMapping: template.fieldMapping,
-      applicant: payload.applicant,
-      measures: payload.measures || [],
-      justificationText: justification,
+      applicant: aiSuggestion.applicant,
+      measures: aiSuggestion.measures || [],
+      justificationText: aiSuggestion.justification
     });
 
     // 4. Datei hochladen
-    const fileName = `applications/${Date.now()}_${payload.applicant.lastName}_${payload.applicant.firstName}.pdf`;
+    const fileName = `applications/${Date.now()}_${aiSuggestion.applicant.lastName}_${aiSuggestion.applicant.firstName}.pdf`;
     const { path } = await uploadDocument(fileName, pdfBytes);
 
     // 5. Signierte URL erzeugen
@@ -88,6 +94,7 @@ applicationRouter.post("/generate", async (req, res) => {
       },
       meta: {
         templateUsed: template.insurerName,
+        extractedData: aiSuggestion
       }
     });
 

@@ -96,7 +96,7 @@ applicationRouter.post("/generate", async (req, res) => {
     return res.status(500).json({
       ok: false,
       error: "Interner Fehler",
-      message: err.message ?? String(err),
+      message: err?.message || JSON.stringify(err) || "Unbekannter Fehler"
     });
   }
 });

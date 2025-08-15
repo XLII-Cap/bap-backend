@@ -1,67 +1,69 @@
 /**
  * OpenAI-Service zur automatisierten Befüllung aller Antragsfelder.
- * Ziel: Aus Freitext + Strukturangaben wird eine vollständige JSON-Struktur erzeugt.
+ * Ziel: Aus strukturierten Angaben wird eine plausible Beschreibung & Begründung erzeugt.
  */
 
 import OpenAI from "openai";
 import { config } from "../config.js";
 
-// OpenAI-Client
 const client = new OpenAI({
   apiKey: config.openaiApiKey,
 });
 
-// Eingabetyp
-type AnalyzeInput = {
+// 🔷 Eingabestruktur
+export type AnalyzeInput = {
   notes: string;
-  applicant?: Record<string, any>;
-  measures?: string[];
+  applicant: {
+    firstName: string;
+    lastName: string;
+    dateOfBirth: string;
+    street: string;
+    postalCode: string;
+    city: string;
+    insuranceName: string;
+    insuranceIdNumber?: string;
+    careLevel?: number;
+    impairments?: string;
+  };
+  measures: string[];
 };
 
-/**
- * Nutze Freitext + Kontextdaten zur Analyse
- */
+// 🔶 Hauptfunktion: KI generiert Beschreibung + Begründung
 export async function analyzeApplicationText(input: AnalyzeInput): Promise<{
   description: string;
   justification: string;
 }> {
   const { notes, applicant, measures } = input;
 
-  // Prompt dynamisch aus vorhandenem Input aufbauen
-  const context: string[] = [];
-
-  if (applicant) {
-    context.push("## Angaben zur Person ##");
-    context.push(JSON.stringify(applicant, null, 2));
-  }
-
-  if (measures?.length) {
-    context.push("## Gewünschte Maßnahmen ##");
-    context.push(JSON.stringify(measures));
-  }
-
-  context.push("## Freitext des Antragstellers ##");
-  context.push(notes);
-
   const prompt = `
-Du bist ein Assistent für Pflegeanträge nach §40 SGB XI. Analysiere die folgenden Angaben und gib eine strukturierte JSON-Antwort zurück.
+Du bist ein Assistent für Pflegekassen-Anträge. Deine Aufgabe ist es, eine sachliche **Beschreibung der Umbaumaßnahme** sowie eine überzeugende **Begründung** zu formulieren.
 
-### ZIELFORMAT ###
+Die **Begründung** soll folgende Aspekte berücksichtigen:
+
+1. Die beantragten Umbaumaßnahmen: ${measures.join(", ")}
+2. Den Pflegegrad der Antragstellerin: ${applicant.careLevel ?? "nicht angegeben"}
+3. Die gesundheitlichen Einschränkungen: ${applicant.impairments ?? "nicht angegeben"}
+4. Das Geburtsdatum: ${applicant.dateOfBirth} (Alter: ${getAge(applicant.dateOfBirth)} Jahre)
+
+### Wichtig:
+- Die Beschreibung soll den Umbau knapp beschreiben: Was soll gemacht werden?
+- Die Begründung soll die Notwendigkeit des Umbaus sachlich und plausibel erklären.
+- Die Begründung soll **zwischen ¾ und einer DIN-A4-Seite lang** sein.
+
+### Freitext der Antragstellerin:
+"${notes}"
+
+### Gib deine Antwort ausschließlich im folgenden JSON-Format zurück:
 {
-  "description": "Kurze Beschreibung der geplanten Maßnahme",
-  "justification": "Begründung aus Sicht der Pflegeperson oder des Antragstellers"
+  "description": "...",
+  "justification": "..."
 }
-
-### ANGABEN ###
-${context.join("\n\n")}
-
-### JSON-ANTWORT ###
 `;
 
   const completion = await client.chat.completions.create({
     model: "gpt-4",
     messages: [
-      { role: "system", content: "Du bist ein KI-Assistent für Pflegeanträge nach §40 SGB XI." },
+      { role: "system", content: "Du bist ein KI-Assistent für Pflegeanträge gemäß §40 SGB XI." },
       { role: "user", content: prompt }
     ],
     temperature: 0.4
@@ -74,7 +76,20 @@ ${context.join("\n\n")}
   try {
     return JSON.parse(json);
   } catch (err) {
-    console.error("❌ Fehler beim Parsen der KI-Antwort:", err);
+    console.error("Fehler beim Parsen der KI-Antwort:", err);
     throw new Error("Die Antwort der KI konnte nicht gelesen werden.");
   }
 }
+
+// 🔽 Altersberechnung
+function getAge(dateString: string): number {
+  const birthDate = new Date(dateString);
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const m = today.getMonth() - birthDate.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+  return age;
+}
+

@@ -2,11 +2,13 @@ import { Router } from "express";
 import { z } from "zod";
 import { findTemplateForInsurer } from "../services/templateService.js";
 import { createJustification } from "../services/openaiService.js";
+import { generateApplicationPdf } from "../services/pdfService.js";
+import { uploadDocument, signDocumentUrl } from "../services/storageService.js";
 import type { CreateApplicationRequest } from "../types.js";
 
 export const applicationRouter = Router();
 
-// --- SCHEMAS ---
+// --- Zod Validierung ---
 const ApplicantSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
@@ -35,7 +37,7 @@ const CreateApplicationSchema = z.object({
   notes: z.string().optional(),
 });
 
-// --- ROUTE ---
+// --- Hauptfunktion ---
 applicationRouter.post("/generate", async (req, res) => {
   const parsed = CreateApplicationSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -49,30 +51,52 @@ applicationRouter.post("/generate", async (req, res) => {
   const payload: CreateApplicationRequest = parsed.data;
 
   try {
-    // 1) PDF-Vorlage je nach Kasse suchen
+    // 1. PDF-Vorlage laden
     const template = await findTemplateForInsurer(payload.applicant.insuranceName);
     if (!template) {
       return res.status(404).json({
         ok: false,
-        error: `Keine PDF-Vorlage gefunden für '${payload.applicant.insuranceName}'`,
+        error: `Keine Vorlage für Kasse '${payload.applicant.insuranceName}' gefunden.`,
       });
     }
 
-    // 2) Begründungstext generieren
+    // 2. Begründung erzeugen
     const justification = await createJustification(payload);
 
-    // 3) JSON-Antwort senden (noch ohne PDF!)
-    return res.status(200).json({
-      ok: true,
-      template: template.templatePathInBucket,
-      justification: justification,
+    // 3. PDF erzeugen
+    const pdfBytes = await generateApplicationPdf({
+      templatePathInBucket: template.templatePathInBucket,
+      fieldMapping: template.fieldMapping,
+      applicant: payload.applicant,
+      measures: payload.measures || [],
+      justificationText: justification,
     });
 
-  } catch (err) {
-    console.error("Fehler beim Generieren:", err);
+    // 4. Datei hochladen
+    const fileName = `applications/${Date.now()}_${payload.applicant.lastName}_${payload.applicant.firstName}.pdf`;
+    const { path } = await uploadDocument(fileName, pdfBytes);
+
+    // 5. Signierte URL erzeugen
+    const { signedUrl } = await signDocumentUrl(path);
+
+    // 6. Antwort
+    return res.status(200).json({
+      ok: true,
+      file: {
+        path,
+        url: signedUrl
+      },
+      meta: {
+        templateUsed: template.insurerName,
+      }
+    });
+
+  } catch (err: any) {
+    console.error("Fehler bei Antragserzeugung:", err);
     return res.status(500).json({
       ok: false,
-      error: "Interner Fehler beim Generieren",
+      error: "Interner Fehler",
+      message: err.message ?? String(err),
     });
   }
 });

@@ -55,7 +55,7 @@ applicationRouter.post("/generate", async (req, res) => {
   const input = parsed.data;
 
   try {
-    // 1. Pflichtfelder prüfen
+    // 1. Vorhandene Daten prüfen
     if (!input.notes || !input.applicant?.insuranceName) {
       return res.status(400).json({
         ok: false,
@@ -63,14 +63,14 @@ applicationRouter.post("/generate", async (req, res) => {
       });
     }
 
-    // 2. Freitext & restliche Daten an OpenAI übergeben
+    // 2. KI analysiert Freitext + zusätzliche Daten
     const aiSuggestion = await analyzeApplicationText({
       notes: input.notes,
       applicant: input.applicant,
-      measures: input.measures || [],
+      measures: input.measures || []
     });
 
-    // 3. PDF-Vorlage laden
+    // 3. Template laden basierend auf Versicherung
     const template = await findTemplateForInsurer(input.applicant.insuranceName);
     if (!template) {
       return res.status(404).json({
@@ -79,7 +79,7 @@ applicationRouter.post("/generate", async (req, res) => {
       });
     }
 
-    // 4. PDF erzeugen
+    // 4. PDF erzeugen mit echten + KI-Daten
     const pdfBytes = await generateApplicationPdf({
       templatePathInBucket: template.templatePathInBucket,
       fieldMapping: template.fieldMapping,
@@ -120,4 +120,6 @@ applicationRouter.post("/generate", async (req, res) => {
       message: err?.message || JSON.stringify(err) || "Unbekannter Fehler",
     });
   }
+});
+
 });

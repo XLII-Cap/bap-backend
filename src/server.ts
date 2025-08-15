@@ -27,6 +27,10 @@ app.get("/health", (_req, res) => res.status(200).json({ ok: true }));
 app.use("/api/applications", applicationRouter);
 app.use("/api/analyze", analyzeRouter);
 
+app.post("/test", (req, res) => {
+  console.log("TEST BODY:", req.body);
+  res.json({ body: req.body });
+});
 
 app.listen(config.port, () => {
   logger.info(`Server läuft auf Port ${config.port} (Mode: ${config.nodeEnv})`);

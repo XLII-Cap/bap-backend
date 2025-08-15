@@ -1,45 +1,43 @@
 /**
- * OpenAI-Service zur automatisierten Erzeugung von Beschreibung & Begründung.
+ * OpenAI-Service zur automatisierten Befüllung aller Antragsfelder.
+ * Ziel: Aus Nutzerdaten wird eine strukturierte JSON-Antwort erzeugt.
  */
 
 import OpenAI from "openai";
 import { config } from "../config.js";
 
-// OpenAI initialisieren
 const client = new OpenAI({
   apiKey: config.openaiApiKey,
 });
 
-/**
- * Nutzt den gesamten Antrag (nicht nur notes), um Beschreibung & Begründung zu generieren.
- */
-export async function analyzeApplicationText(userText: string, contextData?: any): Promise<{ description: string; justification: string }> {
-  const contextString = contextData
-    ? `
+// Neuer Typ: Eingabeformat für die Analyse
+type AnalyzeInput = {
+  notes: string;
+  applicant?: any;
+  measures?: string[];
+};
 
-### BISHER BEKANNTE FELDER ###
-${JSON.stringify(contextData, null, 2)}`
-    : "";
+/**
+ * Analyse von Notizen, ergänzt um applicant & measures
+ */
+export async function analyzeApplicationText(input: AnalyzeInput): Promise<any> {
+  const { notes, applicant, measures } = input;
 
   const prompt = `
-Du bist ein Assistent für Pflegeanträge gemäß §40 SGB XI.
+Du bist ein Assistent für Pflegeanträge. Analysiere die folgenden Angaben und gib eine strukturierte JSON-Antwort zurück.
 
-Deine Aufgabe:
-- Lies den folgenden Nutzereingabetext und die optionalen Kontextdaten.
-- Generiere ZWEI Dinge:
-  1. Eine **Beschreibung der beantragten Maßnahme**
-  2. Eine **Begründung**, warum diese Maßnahme medizinisch / pflegerisch notwendig ist.
-
-Antworte NUR im folgenden JSON-Format:
-
+### BEISPIELFORMAT ###
 {
-  "description": "...",
-  "justification": "..."
+  "description": "Die Badewanne soll durch eine bodengleiche Dusche ersetzt werden.",
+  "justification": "Aufgrund starker Mobilitätseinschränkungen ist die selbstständige Nutzung des Bades nicht mehr möglich..."
 }
 
-### NUTZERTEXT ###
-${userText}
-${contextString}
+### NUTZEREINGABEN ###
+Pflegegrad: ${applicant?.careLevel || "nicht angegeben"}
+Geburtsdatum: ${applicant?.dateOfBirth || "nicht angegeben"}
+Versicherung: ${applicant?.insuranceName || "nicht angegeben"}
+Maßnahmen: ${(measures || []).join(", ") || "nicht angegeben"}
+Freitext: ${notes}
 
 ### JSON-ANTWORT ###
 `;
@@ -47,10 +45,10 @@ ${contextString}
   const completion = await client.chat.completions.create({
     model: "gpt-4",
     messages: [
-      { role: "system", content: "Du bist ein KI-Assistent für Pflegeanträge." },
-      { role: "user", content: prompt },
+      { role: "system", content: "Du bist ein KI-Assistent für Pflegeanträge nach § 40 SGB XI." },
+      { role: "user", content: prompt }
     ],
-    temperature: 0.4,
+    temperature: 0.4
   });
 
   const text = completion.choices[0]?.message?.content || "";
@@ -58,14 +56,9 @@ ${contextString}
   const json = text.slice(jsonStart).trim();
 
   try {
-    const result = JSON.parse(json);
-    return {
-      description: result.description || "",
-      justification: result.justification || "",
-    };
+    return JSON.parse(json);
   } catch (err) {
     console.error("❌ Fehler beim Parsen der KI-Antwort:", err);
-    console.error("❌ Ursprüngliche Antwort:", text);
     throw new Error("Die Antwort der KI konnte nicht gelesen werden.");
   }
 }
